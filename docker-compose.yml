@@ -6,9 +6,9 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/facial_db
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/facial_db
     depends_on:
-      postgres:
+      db:
         condition: service_healthy
     volumes:
       - .:/app

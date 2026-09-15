@@ -6,7 +6,7 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql://postgres:postgres@localhost:5433/facial_db"
+    "postgresql://postgres:postgres@db:5432/facial_db"
 )
 
 engine = create_engine(
