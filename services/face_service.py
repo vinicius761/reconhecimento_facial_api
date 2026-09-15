@@ -5,7 +5,10 @@ from insightface.app import FaceAnalysis
 
 face_app = FaceAnalysis(
     name="buffalo_l",
-    providers=["CPUExecutionProvider"]
+    providers=["CPUExecutionProvider"],
+    addons=["liveness"],
+    liveness_mode="normal",
+    liveness_threshold=0.8
 )
 
 face_app.prepare(
@@ -14,8 +17,7 @@ face_app.prepare(
 )
 
 
-def gerar_embedding(caminho_foto: str):
-
+def analisar_rosto(caminho_foto: str):
     imagem = cv2.imread(caminho_foto)
 
     if imagem is None:
@@ -31,9 +33,30 @@ def gerar_embedding(caminho_foto: str):
 
     face = faces[0]
 
-    embedding = face.embedding.astype(np.float32)
+    liveness = face.liveness
 
-    # Normalização
+    return {
+        "is_live": liveness.is_live,
+        "live_score": float(liveness.live_score),
+        "status": liveness.status,
+        "face": face
+    }
+
+
+def gerar_embedding(caminho_foto: str):
+
+    resultado = analisar_rosto(caminho_foto)
+
+    if resultado["is_live"] is not True:
+        raise ValueError(
+            f"Rosto não considerado real. "
+            f"Liveness: {resultado['live_score']:.4f}"
+        )
+
+    face = resultado["face"]
+
+    embedding = face.embedding
+
     norma = np.linalg.norm(embedding)
 
     if norma == 0:
@@ -46,15 +69,8 @@ def gerar_embedding(caminho_foto: str):
 
 def calcular_similaridade(embedding1, embedding2):
 
-    a = np.array(
-        embedding1,
-        dtype=np.float32
-    )
-
-    b = np.array(
-        embedding2,
-        dtype=np.float32
-    )
+    a = np.array(embedding1, dtype=np.float32)
+    b = np.array(embedding2, dtype=np.float32)
 
     norma_a = np.linalg.norm(a)
     norma_b = np.linalg.norm(b)
@@ -62,8 +78,6 @@ def calcular_similaridade(embedding1, embedding2):
     if norma_a == 0 or norma_b == 0:
         return 0.0
 
-    return float(
-        np.dot(a, b) /
-        (norma_a * norma_b)
-    )
+    similaridade = np.dot(a, b) / (norma_a * norma_b)
 
+    return float(similaridade)

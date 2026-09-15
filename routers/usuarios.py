@@ -3,20 +3,35 @@ import shutil
 import uuid
 import json
 
+import numpy as np
+
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from sqlalchemy import text
 
 from database.connection import SessionLocal
-from services.face_service import calcular_similaridade, gerar_embedding
+from services.face_service import (
+    analisar_rosto,
+    calcular_similaridade
+)
+
 
 router = APIRouter(
     prefix="/usuarios",
     tags=["Usuários"]
 )
 
+
 UPLOAD_DIR = "/app/uploads/faces"
 
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(
+    UPLOAD_DIR,
+    exist_ok=True
+)
+
+
+# ==========================================================
+# CADASTRAR USUÁRIO
+# ==========================================================
 
 @router.post("/")
 async def cadastrar_usuario(
@@ -33,6 +48,9 @@ async def cadastrar_usuario(
             foto.filename
         )[1].lower()
 
+    if not extensao:
+        extensao = ".jpg"
+
     nome_arquivo = f"{uuid.uuid4()}{extensao}"
 
     caminho = os.path.join(
@@ -44,11 +62,12 @@ async def cadastrar_usuario(
 
     try:
 
-        # ==========================================
+        # ==================================================
         # 1. SALVAR FOTO
-        # ==========================================
+        # ==================================================
 
         with open(caminho, "wb") as arquivo:
+
             shutil.copyfileobj(
                 foto.file,
                 arquivo
@@ -56,13 +75,73 @@ async def cadastrar_usuario(
 
         print("Foto salva:", caminho)
 
-        # ==========================================
-        # 2. GERAR EMBEDDING DO ROSTO
-        # ==========================================
+        # ==================================================
+        # 2. ANALISAR ROSTO + LIVENESS
+        # ==================================================
+
+        print("Analisando rosto e liveness...")
+
+        resultado_face = analisar_rosto(
+            caminho
+        )
+
+        face = resultado_face["face"]
+
+        is_live = resultado_face["is_live"]
+
+        live_score = resultado_face["live_score"]
+
+        status = resultado_face["status"]
+
+        print("Liveness:")
+        print("is_live:", is_live)
+        print("score:", live_score)
+        print("status:", status)
+
+        # ==================================================
+        # 3. BLOQUEAR FOTO / SPOOF
+        # ==================================================
+
+        if is_live is not True:
+
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "mensagem": "O rosto não foi considerado real.",
+                    "liveness": {
+                        "is_live": False,
+                        "score": round(
+                            live_score,
+                            4
+                        ),
+                        "status": status
+                    }
+                }
+            )
+
+        # ==================================================
+        # 4. GERAR EMBEDDING
+        # ==================================================
 
         print("Gerando embedding...")
 
-        embedding = gerar_embedding(caminho)
+        embedding = face.embedding
+
+        norma = np.linalg.norm(
+            embedding
+        )
+
+        if norma == 0:
+
+            raise ValueError(
+                "Embedding inválido."
+            )
+
+        embedding = (
+            embedding / norma
+        )
+
+        embedding = embedding.tolist()
 
         print(
             "Embedding gerado:",
@@ -70,17 +149,17 @@ async def cadastrar_usuario(
             "valores"
         )
 
-        # ==========================================
-        # 3. TRANSFORMAR EMBEDDING EM JSON
-        # ==========================================
+        # ==================================================
+        # 5. TRANSFORMAR EMBEDDING EM JSON
+        # ==================================================
 
         embedding_json = json.dumps(
             embedding
         )
 
-        # ==========================================
-        # 4. SALVAR USUÁRIO + EMBEDDING
-        # ==========================================
+        # ==================================================
+        # 6. SALVAR USUÁRIO
+        # ==================================================
 
         resultado = db.execute(
             text("""
@@ -104,7 +183,9 @@ async def cadastrar_usuario(
                 "nome": nome,
                 "cpf": cpf,
                 "email": email,
-                "foto_path": f"uploads/faces/{nome_arquivo}",
+                "foto_path": (
+                    f"uploads/faces/{nome_arquivo}"
+                ),
                 "embedding": embedding_json
             }
         )
@@ -118,17 +199,43 @@ async def cadastrar_usuario(
             usuario_id
         )
 
-        # ==========================================
-        # 5. RETORNO
-        # ==========================================
+        # ==================================================
+        # 7. RETORNO
+        # ==================================================
 
         return {
+
             "sucesso": True,
-            "usuario_id": str(usuario_id),
+
+            "usuario_id": str(
+                usuario_id
+            ),
+
             "nome": nome,
-            "foto": f"uploads/faces/{nome_arquivo}",
-            "embedding_salvo": True
+
+            "foto": (
+                f"uploads/faces/{nome_arquivo}"
+            ),
+
+            "embedding_salvo": True,
+
+            "liveness": {
+                "is_live": True,
+                "score": round(
+                    live_score,
+                    4
+                ),
+                "status": status
+            }
         }
+
+    except HTTPException:
+        db.rollback()
+
+        if os.path.exists(caminho):
+            os.remove(caminho)
+
+        raise
 
     except Exception as e:
 
@@ -152,17 +259,34 @@ async def cadastrar_usuario(
         db.close()
 
 
+# ==========================================================
+# RECONHECER USUÁRIO
+# ==========================================================
+
 @router.post("/reconhecer")
 async def reconhecer(
     foto: UploadFile = File(...)
 ):
+
     print("================================")
     print("ARQUIVO RECEBIDO:")
     print("filename:", foto.filename)
     print("content_type:", foto.content_type)
     print("================================")
 
-    nome_arquivo = f"{uuid.uuid4()}.jpg"
+    extensao = ""
+
+    if foto.filename:
+        extensao = os.path.splitext(
+            foto.filename
+        )[1].lower()
+
+    if not extensao:
+        extensao = ".jpg"
+
+    nome_arquivo = (
+        f"{uuid.uuid4()}{extensao}"
+    )
 
     caminho = os.path.join(
         UPLOAD_DIR,
@@ -173,13 +297,14 @@ async def reconhecer(
 
     try:
 
-        # ==========================================
+        # ==================================================
         # 1. SALVAR FOTO TEMPORARIAMENTE
-        # ==========================================
+        # ==================================================
 
         print("Recebendo foto...")
 
         with open(caminho, "wb") as arquivo:
+
             shutil.copyfileobj(
                 foto.file,
                 arquivo
@@ -187,13 +312,100 @@ async def reconhecer(
 
         print("Foto salva.")
 
-        # ==========================================
-        # 2. GERAR EMBEDDING DO ROSTO RECEBIDO
-        # ==========================================
+        # ==================================================
+        # 2. LIVENESS
+        # ==================================================
 
-        print("Gerando embedding...")
+        print(
+            "Analisando liveness..."
+        )
 
-        embedding_recebido = gerar_embedding(caminho)
+        resultado_face = analisar_rosto(
+            caminho
+        )
+
+        face = resultado_face["face"]
+
+        is_live = resultado_face["is_live"]
+
+        live_score = resultado_face["live_score"]
+
+        status = resultado_face["status"]
+
+        print("================================")
+        print("LIVENESS")
+        print("is_live:", is_live)
+        print("score:", live_score)
+        print("status:", status)
+        print("================================")
+
+        # ==================================================
+        # 3. BLOQUEAR SPOOFING
+        # ==================================================
+
+        if is_live is not True:
+
+            print(
+                "ROSTO REPROVADO NO LIVENESS"
+            )
+
+            return {
+
+                "sucesso": True,
+
+                "reconhecido": False,
+
+                "liveness": {
+
+                    "is_live": False,
+
+                    "score": round(
+                        live_score,
+                        4
+                    ),
+
+                    "status": status
+                },
+
+                "similaridade": 0,
+
+                "usuario": None,
+
+                "mensagem":
+                    "Rosto não considerado real."
+            }
+
+        print(
+            "LIVENESS APROVADO"
+        )
+
+        # ==================================================
+        # 4. GERAR EMBEDDING
+        # ==================================================
+
+        print(
+            "Gerando embedding..."
+        )
+
+        embedding_recebido = face.embedding
+
+        norma = np.linalg.norm(
+            embedding_recebido
+        )
+
+        if norma == 0:
+
+            raise ValueError(
+                "Embedding inválido."
+            )
+
+        embedding_recebido = (
+            embedding_recebido / norma
+        )
+
+        embedding_recebido = (
+            embedding_recebido.tolist()
+        )
 
         print(
             "Embedding recebido:",
@@ -201,11 +413,13 @@ async def reconhecer(
             "dimensões"
         )
 
-        # ==========================================
-        # 3. BUSCAR USUÁRIOS CADASTRADOS
-        # ==========================================
+        # ==================================================
+        # 5. BUSCAR USUÁRIOS
+        # ==================================================
 
-        print("Buscando usuários cadastrados...")
+        print(
+            "Buscando usuários cadastrados..."
+        )
 
         resultado = db.execute(
             text("""
@@ -221,73 +435,134 @@ async def reconhecer(
             """)
         )
 
-        usuarios = resultado.mappings().all()
+        usuarios = (
+            resultado
+            .mappings()
+            .all()
+        )
 
         print(
             "Usuários encontrados:",
             len(usuarios)
         )
 
-        # ==========================================
-        # 4. VERIFICAR SE EXISTEM USUÁRIOS
-        # ==========================================
+        # ==================================================
+        # 6. NENHUM USUÁRIO
+        # ==================================================
 
         if not usuarios:
 
             return {
+
                 "sucesso": True,
+
                 "reconhecido": False,
+
+                "liveness": {
+
+                    "is_live": True,
+
+                    "score": round(
+                        live_score,
+                        4
+                    ),
+
+                    "status": status
+                },
+
                 "similaridade": 0,
+
                 "usuario": None,
-                "mensagem": "Nenhum usuário com rosto cadastrado."
+
+                "mensagem":
+                    "Nenhum usuário com rosto cadastrado."
             }
 
-        # ==========================================
-        # 5. COMPARAR COM OS USUÁRIOS
-        # ==========================================
+        # ==================================================
+        # 7. COMPARAR EMBEDDINGS
+        # ==================================================
 
         melhor_usuario = None
+
         melhor_similaridade = -1
 
         for usuario in usuarios:
 
-            embedding_cadastrado = usuario["embedding"]
+            embedding_cadastrado = (
+                usuario["embedding"]
+            )
 
-            similaridade = calcular_similaridade(
-                embedding_recebido,
-                embedding_cadastrado
+            # Caso o PostgreSQL retorne JSON como string
+            if isinstance(
+                embedding_cadastrado,
+                str
+            ):
+
+                embedding_cadastrado = (
+                    json.loads(
+                        embedding_cadastrado
+                    )
+                )
+
+            similaridade = (
+                calcular_similaridade(
+                    embedding_recebido,
+                    embedding_cadastrado
+                )
             )
 
             print(
-                f"Comparando com: {usuario['nome']} "
-                f"| Similaridade: {similaridade:.4f}"
+                f"Comparando com: "
+                f"{usuario['nome']} "
+                f"| Similaridade: "
+                f"{similaridade:.4f}"
             )
 
-            if similaridade > melhor_similaridade:
+            if (
+                similaridade
+                > melhor_similaridade
+            ):
 
-                melhor_similaridade = similaridade
-                melhor_usuario = usuario
+                melhor_similaridade = (
+                    similaridade
+                )
 
-        # ==========================================
-        # 6. LIMIAR
-        # ==========================================
+                melhor_usuario = (
+                    usuario
+                )
+
+        # ==================================================
+        # 8. LIMIAR
+        # ==================================================
 
         LIMIAR = 0.50
 
         print(
-            f"Melhor similaridade: "
+            "================================"
+        )
+
+        print(
+            "Melhor similaridade:",
             f"{melhor_similaridade:.4f}"
         )
 
         print(
-            f"Limiar: {LIMIAR}"
+            "Limiar:",
+            LIMIAR
         )
 
-        # ==========================================
-        # 7. VERIFICAR SE RECONHECEU
-        # ==========================================
+        print(
+            "================================"
+        )
 
-        if melhor_similaridade >= LIMIAR:
+        # ==================================================
+        # 9. RECONHECIDO
+        # ==================================================
+
+        if (
+            melhor_similaridade
+            >= LIMIAR
+        ):
 
             print(
                 "ROSTO RECONHECIDO:",
@@ -295,37 +570,80 @@ async def reconhecer(
             )
 
             return {
+
                 "sucesso": True,
+
                 "reconhecido": True,
+
+                "liveness": {
+
+                    "is_live": True,
+
+                    "score": round(
+                        live_score,
+                        4
+                    ),
+
+                    "status": status
+                },
+
                 "similaridade": round(
                     melhor_similaridade,
                     4
                 ),
+
                 "usuario": {
+
                     "id": str(
                         melhor_usuario["id"]
                     ),
-                    "nome": melhor_usuario["nome"],
-                    "cpf": melhor_usuario["cpf"],
-                    "email": melhor_usuario["email"]
+
+                    "nome":
+                        melhor_usuario["nome"],
+
+                    "cpf":
+                        melhor_usuario["cpf"],
+
+                    "email":
+                        melhor_usuario["email"]
                 }
             }
 
-        # ==========================================
-        # 8. NÃO RECONHECIDO
-        # ==========================================
+        # ==================================================
+        # 10. NÃO RECONHECIDO
+        # ==================================================
 
-        print("ROSTO NÃO RECONHECIDO")
+        print(
+            "ROSTO NÃO RECONHECIDO"
+        )
 
         return {
+
             "sucesso": True,
+
             "reconhecido": False,
+
+            "liveness": {
+
+                "is_live": True,
+
+                "score": round(
+                    live_score,
+                    4
+                ),
+
+                "status": status
+            },
+
             "similaridade": round(
                 melhor_similaridade,
                 4
             ),
+
             "usuario": None,
-            "mensagem": "Rosto não reconhecido."
+
+            "mensagem":
+                "Rosto não reconhecido."
         }
 
     except Exception as e:
@@ -333,7 +651,8 @@ async def reconhecer(
         db.rollback()
 
         print(
-            f"Erro no reconhecimento: {e}"
+            "Erro no reconhecimento:",
+            e
         )
 
         raise HTTPException(
