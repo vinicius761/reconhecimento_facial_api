@@ -1,17 +1,17 @@
 services:
 
-  # api:
-  #   build: .
-  #   container_name: facial_api
-  #   ports:
-  #     - "8000:8000"
-  #   environment:
-  #     DATABASE_URL: postgresql://postgres:postgres@postgres:5432/facial_db
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #   volumes:
-  #     - .:/app
+  api:
+    build: .
+    container_name: facial_api
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/facial_db
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - .:/app
 
   db:
     image: postgres:17
