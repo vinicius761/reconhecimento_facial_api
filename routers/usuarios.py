@@ -161,6 +161,22 @@ async def cadastrar_usuario(
         # 6. SALVAR USUÁRIO
         # ==================================================
 
+
+        # Busca se já existe algum registro com o mesmo CPF
+        usuario_existente = db.execute(
+            text("SELECT id FROM usuarios WHERE cpf = :cpf"),
+            {"cpf": cpf}
+        ).first()
+
+        if usuario_existente:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "mensagem": "CPF já cadastrado no sistema.",
+                    "campo": "cpf"
+                }
+            )
+
         resultado = db.execute(
             text("""
                 INSERT INTO usuarios (
