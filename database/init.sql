@@ -3,23 +3,18 @@
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 
+CREATE TYPE nivel_acesso_enum AS ENUM ('ADMIN', 'GERENTE', 'USUARIO');
+
 CREATE TABLE IF NOT EXISTS usuarios (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-
     nome VARCHAR(150) NOT NULL,
-
     cpf VARCHAR(14) UNIQUE,
-
     email VARCHAR(150) UNIQUE,
-
     foto_path TEXT,
-
     embedding JSONB,
-
+    nivel_acesso nivel_acesso_enum NOT NULL DEFAULT 'USUARIO',
     ativo BOOLEAN NOT NULL DEFAULT TRUE,
-
     criado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
     atualizado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
