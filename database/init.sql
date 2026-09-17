@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
     nome VARCHAR(150) NOT NULL,
     cpf VARCHAR(14) UNIQUE,
     email VARCHAR(150) UNIQUE,
+    senha VARCHAR(255) NOT NULL,
     foto_path TEXT,
     embedding JSONB,
     nivel_acesso nivel_acesso_enum NOT NULL DEFAULT 'USUARIO',
@@ -17,7 +18,6 @@ CREATE TABLE IF NOT EXISTS usuarios (
     criado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     atualizado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
-
 
 
 CREATE INDEX IF NOT EXISTS idx_usuarios_nome

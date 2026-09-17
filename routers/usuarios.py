@@ -21,21 +21,20 @@ def get_db():
 @router.post("/")
 async def cadastrar_usuario(
     nome: str = Form(...),
+    senha: str = Form(...),  # Novo campo obrigatório
     cpf: str = Form(None),
     email: str = Form(None),
+    nivel_acesso: str = Form("USUARIO"),  # Novo campo com valor padrão
     foto: UploadFile = File(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     return await usuario_controller.processar_cadastro_usuario(
-        nome, cpf, email, foto, db
+        nome=nome,
+        cpf=cpf,
+        email=email,
+        senha=senha,
+        foto=foto,
+        db=db,
+        nivel_acesso=nivel_acesso,
     )
 
-
-@router.post("/reconhecer")
-async def reconhecer(
-    foto: UploadFile = File(...),
-    db: Session = Depends(get_db)
-):
-    return await usuario_controller.processar_reconhecimento(
-        foto, db
-    )

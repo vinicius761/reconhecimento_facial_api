@@ -2,6 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from routers.usuarios import router as usuarios_router
+from routers.reconhecimento import router as reconhecimento_router
+
 
 app = FastAPI(
     title="Facial API",
@@ -18,6 +20,7 @@ app.add_middleware(
 
 
 app.include_router(usuarios_router)
+app.include_router(reconhecimento_router)
 
 
 @app.get("/")
